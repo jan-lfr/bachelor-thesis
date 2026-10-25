@@ -89,7 +89,7 @@ def selective_refinement_vectorised(l_max,w,t,y,eta):
 # %% Algorithm Parameter
 t = 20
 
-y=4000
+y=0
 l_max = 10
 eta=4000
 
@@ -108,21 +108,22 @@ for i in range(z):
     rng = np.random.default_rng(i)
 
     ## Plain Monte Carlo
-    n_mc = 10**5
+    n_mc = 10**7
     t0 = time.perf_counter()
-
+    block_number=10
     treffer = 0
+    for j in range(block_number):
+        g = G(*sample(n_mc, rng), t)
+        treffer += (g <=y).sum()
 
-    g = G(*sample(n_mc, rng), t)
-    treffer += (g <=y).sum()
-
-    p = treffer / (n_mc)
+    p = treffer / (n_mc*block_number)
     real_val[i] = p
 
     t1 = time.perf_counter()
     time_mc[i] = t1-t0
 
 
+    '''
     ## Selective Refinment Algorithm
     n_sr = 10**5
     t0 = time.perf_counter()
@@ -142,9 +143,10 @@ for i in range(z):
     sr_val[i] = p
     t1 = time.perf_counter()
     time_sr[i] = t1-t0
+    '''
 
     ##Selective Refinement Algorithm Vectorized
-    n_v = 10**5
+    n_v = 10**7
     t0 = time.perf_counter()
 
     w = np.array(sample(n_v, rng))
@@ -176,48 +178,57 @@ def s(runs):
 def rel_s(runs):
     return s(runs) / p_mean(runs)
 
-pred_mc = np.sqrt(n_mc*p_mean(real_val))**-1
-pred_sr_scalar = np.sqrt(n_sr*p_mean(real_val))**-1
+def standard_error(runs):
+    return s(runs) / np.sqrt(runs.size)
+
+pred_mc = np.sqrt(n_mc*block_number*p_mean(real_val))**-1
+#pred_sr_scalar = np.sqrt(n_sr*p_mean(real_val))**-1
 pred_sr_vectorised = np.sqrt(n_v*p_mean(real_val))**-1
 
 
 ##Varianz Check
 print(f"Relative standard deviation vs predicted MC: {rel_s(real_val):.2%} vs {pred_mc:.2%}")
-print(f"Relative standard deviation vs predicted SR Scalar: {rel_s(sr_val):.2%} vs {pred_sr_scalar:.2%}")
+#print(f"Relative standard deviation vs predicted SR Scalar: {rel_s(sr_val):.2%} vs {pred_sr_scalar:.2%}")
 print(f"Relative standard deviation vs predicted SR Vectorised: {rel_s(sr_val_vectorised):.2%} vs {pred_sr_vectorised:.2%}")
 
 ##Bias Check
 
-bias_sr_scalar = (p_mean(sr_val)-p_mean(real_val))/np.sqrt((s(sr_val)**2+s(real_val)**2)/z)
+#bias_sr_scalar = (p_mean(sr_val)-p_mean(real_val))/np.sqrt((s(sr_val)**2+s(real_val)**2)/z)
 bias_sr_vectorised = (p_mean(sr_val_vectorised)-p_mean(real_val))/np.sqrt((s(sr_val_vectorised)**2+s(real_val)**2)/z)
 
-print(f"Bias SR Scalar: {bias_sr_scalar:.2f}")
+#print(f"Bias SR Scalar: {bias_sr_scalar:.2f}")
 print(f"Bias SR Vectorised: {bias_sr_vectorised:.2f}")
 
 ##Time Check
 print(f"Time taken MC: {time_mc.mean():.3f} s")
-print(f"Time taken SR Scalar: {time_sr.mean():.3f} s")
+#print(f"Time taken SR Scalar: {time_sr.mean():.3f} s")
 print(f"Time taken SR Vectorised: {time_sr_vectorised.mean():.3f} s")
 
 
 ##Künstliches Kosten modell wie im Seminar Paper
-j_vals_accumalted = np.bincount(j_vals)
+j_vals_counts= np.bincount(j_vals)
 
-q=1
 gamma=1/2
 
-def cost(j_vals):
-    for i in range(len(j_vals_accumalted)):
-        print(i)
-        for k in range(i+1):
-            j += j_vals_accumalted[i]*gamma**(-k*q)
-    return j
+for q in [1,1.5,2]:
+    def cost(vals):
+        j = 0
+        for i in range(len(vals)):
+            for k in range(i+1):
+                j += vals[i]*gamma**(-k*q)
+        return j
 
-cost_sr_vectorised = cost(j_vals)
+    cost_sr_vectorised = cost(j_vals_counts)
 
-##Plain MC Artifical Cost
-cost_mc = n_mc * gamma**(-l_max*q)
+    ##Plain MC Artifical Cost
+    cost_mc = n_v * gamma**(-l_max*q)
+    print(f"q={q}")
+    print(f"Cost MC: {cost_mc:.2f}")
+    print(f"Cost SR Vectorised: {cost_sr_vectorised:.2f}")
+    print(f"Cost Ratio MC/SR Vectorised: {cost_mc/cost_sr_vectorised:.2f}")
 
-print(f"Cost MC: {cost_mc:.2f}")
-print(f"Cost SR Vectorised: {cost_sr_vectorised:.2f}")
-print(f"Cost Ratio MC/SR Vectorised: {cost_mc/cost_sr_vectorised:.2f}")
+##Probabiltion of failure
+print(f"Probability of failure MC: {p_mean(real_val):.4e} ± {standard_error(real_val):.4e}")
+#print(f"Probability of failure SR Scalar: {p_mean(sr_val):.2e}")
+print(f"Probability of failure SR Vectorised: {p_mean(sr_val_vectorised):.4e} ± {standard_error(sr_val_vectorised):.4e}")
+

@@ -231,4 +231,3 @@ for q in [1,1.5,2]:
 print(f"Probability of failure MC: {p_mean(real_val):.4e} ± {standard_error(real_val):.4e}")
 #print(f"Probability of failure SR Scalar: {p_mean(sr_val):.2e}")
 print(f"Probability of failure SR Vectorised: {p_mean(sr_val_vectorised):.4e} ± {standard_error(sr_val_vectorised):.4e}")
-

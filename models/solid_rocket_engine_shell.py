@@ -103,24 +103,102 @@ def rhs(parameters,Ht,Pt,t):
     ]
     )
 
+# %% PDE Solver
 
 def euler(function,timeintervall,deltaT,Parameters,H0,P0):
     yk = np.array([H0,P0])
-    k=0
     for i in np.linspace(timeintervall[0],timeintervall[1],int((timeintervall[1]-timeintervall[0])/deltaT),endpoint=False):
         yk = yk + deltaT*function(Parameters,*yk,i)
     return yk
 
+##
+
+euler_v = euler(rhs,[0,10],0.01,parameters,0.06,2e6)
 
 
-euler(rhs,[0,10],0.01,parameters,0.06,2e6)
-    
+##Runge Kutta Heun
+
+time_grid_rungkutta = np.linspace(0,10,1000+1)
+y = np.array([0.06,2e6])
+k=0
+delta = time_grid_rungkutta[1]-time_grid_rungkutta[0]
+
+for k in range(0,1000):
+    k1 = rhs(parameters, *y, time_grid_rungkutta[k])
+    yk = y + delta*k1
+    k+=1
+    k2 = rhs(parameters, *yk, time_grid_rungkutta[k])
+    y = y +delta*(k1+k2)/2
+
+heun = y
+
+# Runge Kutta 4 Stufen
+
+time_grid_rungkutta = np.linspace(0,10,1000+1)
+delta = time_grid_rungkutta[1]-time_grid_rungkutta[0]
+y = np.array([0.06,2e6])
+k=np.zeros((4,2))
+
+c=[0,1/2,1/2,1]
+b=[1/6,1/3,1/3,1/6]
+A = np.array([
+    [0,   0,   0, 0],
+    [1/2, 0,   0, 0],
+    [0,   1/2, 0, 0],
+    [0,   0,   1, 0],
+])
+
+
+for t in range(0,1000):
+    for i in range(0,4):
+        weight_k = np.zeros(2)
+        for j in range(0,4):
+            weight_k+=A[i,j]*k[j]
+        k[i,:] = rhs(parameters, *y+delta*weight_k, time_grid_rungkutta[t]+c[i]*delta)
+    weight_y = np.zeros(2)
+    for j in range(0,4):
+        weight_y+=b[j]*k[j]
+    y+=delta*weight_y
+
+rk4 = y
+
+
+
+
+# Scipy
+
 from scipy.integrate import solve_ivp
 
 f = lambda t, y: rhs(parameters, y[0], y[1], t)
 
-sol = solve_ivp(f, t_span=(0, 10), y0=[0.06, 2e6],
-                rtol=1e-10, atol=1e-10)
+# Referenz: separater, deutlich strengerer Lauf (DOP853 = Ordnung 8)
+ref = solve_ivp(f, t_span=(0, 10), y0=[0.06, 2e6],
+                method="DOP853", rtol=1e-13, atol=1e-13).y[:, -1]
 
-sol.y[:, -1]   # Zustand (H, P) am Ende
+rtols = np.logspace(-3, -10, 8)
+fehler_scipy = []
+nfev_scipy = []
 
+for rtol in rtols:
+    sol = solve_ivp(f, t_span=(0, 10), y0=[0.06, 2e6],
+                    rtol=rtol, atol=1e-12)
+    fehler_scipy.append(abs((sol.y[1, -1] - ref[1]) / ref[1]))
+    nfev_scipy.append(sol.nfev)
+
+fehler_scipy = np.array(fehler_scipy)
+nfev_scipy = np.array(nfev_scipy)
+
+# Vergleich bei dt = 0.01: relativer Fehler in P und f-Auswertungen
+print(f"{'Verfahren':<12} {'Fehler P':>10} {'nfev':>6}")
+for name, y_end, nfev in [("Euler", euler_v, 1000),
+                          ("Heun",  heun,    2000),
+                          ("RK4",   rk4,     4000)]:
+    print(f"{name:<12} {abs((y_end[1] - ref[1]) / ref[1]):>10.2e} {nfev:>6d}")
+
+print()
+print(f"{'scipy rtol':<12} {'Fehler P':>10} {'nfev':>6}")
+for r, e, n in zip(rtols, fehler_scipy, nfev_scipy):
+    print(f"{r:<12.0e} {e:>10.2e} {n:>6d}")
+
+
+# %%

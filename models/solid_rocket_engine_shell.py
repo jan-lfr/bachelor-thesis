@@ -8,8 +8,8 @@ L = 1.35 #meters
 Ds = 0.247 #meters
 HZero = 0.06 #meters
 
-a = 7.9752e-6 
-n = 0.4365
+a_burn = 7.9752e-6   # Brennratenkonstante
+n_burn = 0.4365      # Brennratenexponent
 tau = 0.6528
 
 amount_samples = 1
@@ -24,7 +24,7 @@ Pa0 = rng.normal(9.2e6,9.2e4,amount_samples) #Pa
 CStar = [1750]
 rho = rng.normal(1690,33.8,amount_samples) #kg/m^3
 Dt = rng.normal(0.064,0.0013,amount_samples) #meter
-c = rng.normal(1, 0.05, amount_samples) #c(t) for instantanous 
+c_rv = rng.normal(1, 0.05, amount_samples) #c(t) for instantanous 
 
 
 # %%c(t) For Cum Probability
@@ -93,12 +93,12 @@ def rhs(parameters,Ht,Pt,t):
 
     return np.array(
         [
-            -a*Pt**n
+            -a_burn*Pt**n_burn
             ,
             np.divide(tau**2*CStar*At(Dt),V(Ds,Ht,L))*
             (
                 np.divide(rho*Af(Ds,Ht,L),At(Dt))   
-                *CStar*a*Pt**n-Pt
+                *CStar*a_burn*Pt**n_burn-Pt
              )
     ]
     )
@@ -175,7 +175,7 @@ f = lambda t, y: rhs(parameters, y[0], y[1], t)
 ref = solve_ivp(f, t_span=(0, 10), y0=[0.06, 2e6],
                 method="DOP853", rtol=1e-13, atol=1e-13).y[:, -1]
 
-rtols = np.logspace(-3, -10, 8)
+rtols = np.logspace(-3, -12, 10)
 fehler_scipy = []
 nfev_scipy = []
 
@@ -190,15 +190,195 @@ nfev_scipy = np.array(nfev_scipy)
 
 # Vergleich bei dt = 0.01: relativer Fehler in P und f-Auswertungen
 print(f"{'Verfahren':<12} {'Fehler P':>10} {'nfev':>6}")
-for name, y_end, nfev in [("Euler", euler_v, 1000),
+for name, y_end, nf_ in [("Euler", euler_v, 1000),
                           ("Heun",  heun,    2000),
                           ("RK4",   rk4,     4000)]:
-    print(f"{name:<12} {abs((y_end[1] - ref[1]) / ref[1]):>10.2e} {nfev:>6d}")
+    print(f"{name:<12} {abs((y_end[1] - ref[1]) / ref[1]):>10.2e} {nf_:>6d}")
 
 print()
 print(f"{'scipy rtol':<12} {'Fehler P':>10} {'nfev':>6}")
-for r, e, n in zip(rtols, fehler_scipy, nfev_scipy):
-    print(f"{r:<12.0e} {e:>10.2e} {n:>6d}")
+for r, e, nf in zip(rtols, fehler_scipy, nfev_scipy):
+    print(f"{r:<12.0e} {e:>10.2e} {nf:>6d}")
 
 
+
+
+# %% Allgemeine Formel
+
+def rk(A,b,c,N):
+    time_grid_rungkutta = np.linspace(0,10,N+1)
+    delta = time_grid_rungkutta[1]-time_grid_rungkutta[0]
+    y = np.array([0.06,2e6])
+    k=np.zeros((len(c),2))
+    for t in range(0,N):
+        for i in range(0,len(c)):
+            weight_k = np.zeros(2)
+            for j in range(0,len(c)):
+                weight_k+=A[i,j]*k[j]
+            k[i,:] = rhs(parameters, *y+delta*weight_k, time_grid_rungkutta[t]+c[i]*delta)
+        weight_y = np.zeros(2)
+        for j in range(0,len(b)):
+            weight_y+=b[j]*k[j]
+        y+=delta*weight_y
+    return y
+
+
+#RKEuler
+c=[0]
+b=[1]
+A = np.array([[0]])
+y_Euler = rk(A,b,c,1000)
+
+
+
+#RkHeun
+c=[0,1]
+b=[1/2,1/2]
+A = np.array([
+    [0, 0],
+    [1, 0],
+])
+
+y_Heun = rk(A,b,c,1000)
+
+
+
+
+#RK4
+c=[0,1/2,1/2,1]
+b=[1/6,1/3,1/3,1/6]
+A = np.array([
+    [0,   0,   0, 0],
+    [1/2, 0,   0, 0],
+    [0,   1/2, 0, 0],
+    [0,   0,   1, 0],
+])
+y_RK4 = rk(A,b,c,1000)
+
+# %%
+tableaus = {
+    "Euler": (np.array([[0]]), [1], [0]),
+    "Heun":  (np.array([
+    [0, 0],
+    [1, 0],
+    ]), [1/2, 1/2], [0, 1]),
+    "RK4":   (np.array([
+    [0,   0,   0, 0],
+    [1/2, 0,   0, 0],
+    [0,   1/2, 0, 0],
+    [0,   0,   1, 0],
+    ]), [1/6, 1/3, 1/3, 1/6], [0, 1/2, 1/2, 1]),
+}
+
+N_list=[500,1000,2000,4000,8000,16000,32000,64000]
+fehler = np.zeros((len(N_list), len(tableaus)))
+fehler_sign = np.zeros((len(N_list), len(tableaus)))
+nfev = np.zeros((len(N_list), len(tableaus)))
+
+for name, (A_, b_, c_) in tableaus.items():
+    for i, N in enumerate(N_list):
+        y = rk(A_, b_, c_, N)
+        fehler[i, list(tableaus.keys()).index(name)] = abs((y[1] - ref[1]) / ref[1])
+        fehler_sign[i, list(tableaus.keys()).index(name)] = (y[1] - ref[1]) / ref[1]
+        nfev[i, list(tableaus.keys()).index(name)] = N * len(b_)
+    print(f"{name:<12} {abs((y[1] - ref[1]) / ref[1]):>10.2e}")
+# %%
+import pandas as pd
+display(pd.DataFrame(fehler, index=N_list, columns=tableaus.keys()))
+display(pd.DataFrame(fehler_sign, index=N_list, columns=tableaus.keys()))
+display(pd.DataFrame(nfev, index=N_list, columns=tableaus.keys()))
+display(pd.DataFrame(np.log2(fehler[:-1]/fehler[1:]), index=N_list[1:], columns=tableaus.keys()))
+# %%
+
+reference_list = {
+    "Euler": 1,
+    "Heun": 2,
+    "RK4": 4,
+}
+
+x = np.divide(10, N_list)
+fig, ax = plt.subplots(figsize=(6, 4))
+for m, name in enumerate(tableaus.keys()):
+    ax.loglog(x, fehler[:, m], "o-", label=name)
+    p=reference_list[name]
+    ax.loglog(x, fehler[7, m] * (x / x[7]) ** p, "--", color="gray", alpha=0.5, label=rf"$\mathcal{{O}}(\Delta t^{p})$")
+ax.set_xlabel(r"Schrittweite $\Delta t$")
+ax.set_ylabel(r"relativer Fehler in $P(T)$")
+ax.set_title("Konvergenz von Euler, Heun und RK4")
+ax.legend()
+ax.invert_xaxis()
+plt.show()
+
+fig, ax = plt.subplots(figsize=(6, 4))
+for m, name in enumerate(tableaus.keys()):
+    ax.loglog(nfev[:, m], fehler[:, m], "o-", label=name)
+ax.loglog(nfev_scipy, fehler_scipy, "--", label="scipy")
+ax.set_xlabel(r"Anzahl $f$-Auswertungen")
+ax.set_ylabel(r"relativer Fehler in $P(T)$")
+ax.set_title("Kosten gegen Genauigkeit")
+ax.legend()
+#ax.invert_xaxis()
+plt.show()
+
+# %% Scipy Test wie wählen wir die Schrittweite
+
+
+
+sol_grob =solve_ivp(f, t_span=(0, 10), y0=[0.06, 2e6],
+                    rtol=1e-3, atol=1e-12)
+
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(sol_grob.t, sol_grob.y[1], "o-", label="$P(t)$")
+ax.set_xlabel(r" $t$")
+ax.set_ylabel(r"$P(t)$")
+ax.set_title("Scipy")
+ax.legend()
+plt.show()
+'''
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(sol_grob.t, sol_grob.y[0], "o-", label="$H(t)$")
+ax.set_xlabel(r" $t$")
+ax.set_ylabel(r"$H(t)$")
+ax.set_title("Scipy")
+ax.axhline(0, color="red", linestyle="--", linewidth=1)
+ax.legend()
+plt.show()
+'''
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(sol_grob.t[:-1], np.diff(sol_grob.t), "o-", label=r"d$\Delta t$")
+ax.set_xlabel(r" $t$")
+ax.set_ylabel(r"$\Delta t$")
+ax.set_title("Scipy")
+ax.legend()
+plt.show()
+# %%
+
+
+sol_grob =solve_ivp(f, t_span=(0, 10), y0=[0.06, 2e6],
+                    rtol=1e-3, atol=[1e-6, 1e1])
+
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(sol_grob.t, sol_grob.y[1], "o-", label="$P(t)$")
+ax.set_xlabel(r" $t$")
+ax.set_ylabel(r"$P(t)$")
+ax.set_title("Scipy")
+ax.legend()
+plt.show()
+'''
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(sol_grob.t, sol_grob.y[0], "o-", label="$H(t)$")
+ax.set_xlabel(r" $t$")
+ax.set_ylabel(r"$H(t)$")
+ax.set_title("Scipy")
+ax.axhline(0, color="red", linestyle="--", linewidth=1)
+ax.legend()
+plt.show()
+'''
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(sol_grob.t[:-1], np.diff(sol_grob.t), "o-", label=r"d$\Delta t$")
+ax.set_xlabel(r" $t$")
+ax.set_ylabel(r"$\Delta t$")
+ax.set_title("Scipy")
+ax.legend()
+plt.show()
 # %%

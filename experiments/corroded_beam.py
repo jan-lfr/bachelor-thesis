@@ -1,13 +1,19 @@
 # %% Imports
-from matplotlib.pylab import default_rng, number
+import sys
+from pathlib import Path
+# Repo-Root in den Suchpfad, damit algorithms/ und models/ gefunden werden
+_kandidaten = [Path.cwd(), *Path.cwd().parents, Path.home() / "Documents/Dev/bachelor-thesis"]
+ROOT = next(p for p in _kandidaten if (p / "algorithms").is_dir())
+sys.path.insert(0, str(ROOT))
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import time
 from algorithms.selective_refinement import (
     selective_refinement,
-    selective_refinement_vectorised,
-)
+    selective_refinement_vectorised
+    )
 from models.corroded_beam import G, sample
 
 #Formulas
@@ -100,6 +106,40 @@ for i in range(z):
 
     #print(f"Time taken Vectorized SR: {t1-t0:.3f} s")
     time_sr_vectorised[i] = t1-t0
+
+    #%% MLMC Selective Refinment
+    gamma=1/2
+    init_samples=100
+    L=0
+    
+    x,x_grob,j_vals = selective_refinement_vectorised(l_max,w,t,y,eta,rng)
+    print(x)
+    print(x_grob)
+
+    #prob_vals_1 = np.zeros()
+    #prob_vals_1 = np.zeros()
+    ''' 
+
+    while True:
+        Nl = init_samples*gamma**-L 
+        
+        w = np.array(sample(Nl, rng))
+
+        #MC w SR
+        x,j_vals = selective_refinement_vectorised(L,w,t,y,eta,rng)
+        #prob_vals[] = np.divide(x.sum(),Nl) ##Logik vom appenden
+
+        #Estimate V[Q_l - Q_l-1]
+        #Compute optimal level allopcation
+        for l in range(0,L):
+            #Compute Y_Nl,l
+            prob_vals_1
+            #Estimatae E[Ql-Ql-1]
+        if (7.7) < tolerance 
+            break
+        L +=1
+
+    '''
 
 
 
@@ -201,7 +241,7 @@ ax.set_ylabel("Anteil, der Level $j$ erreicht")
 ax.set_title(f"Levelverteilung ($y = {y}$, $t = {t}$, $\\eta = {eta}$)")
 ax.legend(loc="upper right")
 
-fig.savefig(f"ergebnisse/levelverteilung_y{y}_t{t}.pdf")
+#fig.savefig(f"ergebnisse/levelverteilung_y{y}_t{t}.pdf")
 plt.show()
 
 
@@ -288,3 +328,227 @@ for t in range(0,len(timeline)):
 
 # %%
 
+
+
+
+t0 = time.perf_counter()
+
+
+
+for i in range(0,len(timeline)):
+    rng = np.random.default_rng(41)
+    x=0
+    level_counts=np.zeros(l_max+1)
+    for j in range(0,block_number):
+        w = np.array(sample(n_v, rng))
+        x_run,j_vals = selective_refinement_vectorised(l_max,w,timeline[i],y,eta,rng)
+        x+=np.divide(x_run.sum(),n_v)
+        level_counts+=np.bincount(j_vals,minlength=l_max+1)
+    
+    prob_fail_vectorised[i] = np.divide(x.sum(),block_number)
+    level_counts_vectorised[i,:] = level_counts
+
+t1 = time.perf_counter()
+
+
+#%%
+from models.corroded_beam import G_k
+
+def selective_refinement_vectorised_MLMC(l_max,w,t,y,eta,rng):
+
+    n=w.shape[1]
+
+    Uniform = rng.uniform(-1,1,n) ##Anzahl der Zufallszahlen = Anzahl der Samples
+
+    j=0
+
+    j_vals = np.zeros(n, dtype=int)
+
+    g = G_k(*w,t,j,Uniform,eta)
+
+    check = abs(g-y) < 2**(-j)*eta
+
+    g_grob = g.copy()
+
+
+    while check.sum() > 0 and j<l_max:
+        j+=1
+        j_vals[check] = j
+        idx = np.nonzero(check)[0]   # Positionen aller True
+        g[idx] = G_k(*w[:,idx],t,j,Uniform[idx],eta)
+        
+        if j<=l_max-1:
+            g_grob = g.copy()
+        check = abs(g-y) < 2**(-j)*eta
+        #print(f"j={j}, g={g[idx]}, check={check},idx={idx}")
+
+        
+    x = (g-y)<=0
+    x_grob = (g_grob-y)<=0
+
+    return x.astype(float),x_grob.astype(float),j_vals
+
+w = np.array(sample(10**7, rng))
+x,x_grob,j_vals = selective_refinement_vectorised_MLMC(10,w,20,4000,4000,rng)
+y_l = x-x_grob
+print(y_l)
+print((y_l == 1).sum())
+print((y_l == 0).sum())
+print((y_l == -1).sum())
+
+# %%
+
+def cost(vals,q):
+        j = 0
+        for i in range(len(vals)):
+            for k in range(i+1):
+                j += vals[i]*gamma**(-k*q)
+        return j
+
+def level_stats(l,n,t,y,eta,q,rng):
+    w = np.array(sample(n, rng))
+    x,x_grob,j_vals = selective_refinement_vectorised_MLMC(l,w,t,y,eta,rng)
+    if l == 0:
+        y_one =(x == 1).sum()
+        y_zero = (x == 0).sum()
+        y_nOne =(x == -1).sum()
+    else:
+        y_l = x-x_grob
+        y_one =(y_l == 1).sum()
+        y_zero = (y_l == 0).sum()
+        y_nOne =(y_l == -1).sum()
+    j_vals_counts= np.bincount(j_vals)
+    cost_sr_vectorised = cost(j_vals_counts,q)
+    return y_one,y_zero,y_nOne,cost_sr_vectorised
+
+def p_tilde(x,n,k):
+    return np.divide(x+k,n+k)
+
+def var_est(y_one,y_nOne,n,k,l):
+    if l == 0:
+        p = np.divide(y_one,n)
+        var = p*(1-p)
+    else:
+        var = p_tilde(y_one+y_nOne,n,k)
+    return var
+
+def mean_est(y_one,y_nOne,n,k,l):
+    if l == 0:
+        mean = np.divide(y_one,n)
+    else:
+        p1 = p_tilde(y_one,n,k)
+        pn1 = p_tilde(y_nOne,n,k)
+        mean = max(p1,pn1)
+    return mean
+
+def optimal_N(V,c,eps):
+    N = np.ceil(np.sqrt(V/c)*2*eps**-2*np.sum(np.sqrt(V * c)))
+    return N.astype(int)
+
+
+V = np.array([0.035, 0.0027])
+c = np.array([1.0, 1.9])
+eps = 1e-3
+
+optimal_N(V,c,eps)
+
+
+def mlmc_sr(t, y, eta, q, eps, N0=1000, k=1, gamma=0.5, L_max=10, rng=None):
+    n, y1, ym1, kosten = [], [], [], []
+
+    L = 0
+    while True:
+
+        # Let NL = Nγ−L and compute YMC Nℓ,L using selective refinement (Algorithm 1)
+        y_one,y_zero,y_nOne,cost_sr_vectorised =level_stats(L, int(N0 * gamma**(-L)), t, y, eta, q, rng)
+        n.append(int(N0 * gamma**(-L)))
+        y1.append(y_one)
+        ym1.append(y_nOne)
+        kosten.append(cost_sr_vectorised)
+        Varianz = np.zeros(L+1)
+        Cost = np.zeros(L+1)
+        
+        # Estimate V[Qℓ−Qℓ−1] using (7.6)
+        for l in range(0,L+1):
+            V_l = var_est(y1[l], ym1[l],  n[l], k, l)
+            c_l = kosten[l] / n[l]
+            Varianz[l] = V_l
+            Cost[l] = c_l
+
+        # Compute the optimal {Nℓ}L ℓ=0 using (4.2) and cost model (6.1)
+        N_opt = optimal_N(Varianz, Cost, eps)
+
+        #Compute YMC Nℓ,ℓ for all levels ℓ = 0,...,L using selective refinement (Algorithm 1)
+        for l in range(0,L+1):
+            if N_opt[l] > n[l]:
+                y_one,y_zero,y_nOne,cost_sr_vectorised =level_stats(l, N_opt[l]-n[l], t, y, eta, q, rng)
+                n[l] += N_opt[l]-n[l]
+                y1[l] += y_one
+                ym1[l] += y_nOne
+                kosten[l] += cost_sr_vectorised
+
+        # Estimate E[Qℓ−Qℓ−1] using (7.5)
+        E_Y_L = mean_est(y1[L], ym1[L], n[L], k, L)
+        if L >= 1:
+            E_Y_Lm1 = mean_est(y1[L-1], ym1[L-1], n[L-1], k, L-1)
+
+        if L == 0:
+            left = E_Y_L
+        else:
+            left = max(gamma * E_Y_Lm1, E_Y_L)
+        right = (1/gamma - 1) * eps / np.sqrt(2)
+
+        #Terminate if converged by checking inequality (7.7)
+        if left < right:
+            break
+
+        L += 1
+
+    # The MLMC-SR estimator is QML {Nℓ},L=L ℓ=0 YMC
+    y1 = np.array(y1)
+    ym1 = np.array(ym1)
+    n = np.array(n)
+    estimator = np.sum((y1 - ym1) / n)
+    return estimator, n, y1, ym1, kosten
+
+'''rng = np.random.default_rng(0)
+est, n, y1, ym1, kosten = mlmc_sr(t=20, y=4000, eta=4000, q=1, eps=1e-3, rng=rng)
+
+print("Schätzer:", est)
+print("Level L:", len(n) - 1)
+print("n pro Level:", n)
+print("y1:", y1)
+print("ym1:", ym1)'''
+
+
+seeds = range(20)
+ergebnisse_n0 = []
+level_n0 = []
+
+for s in seeds:
+    rng = np.random.default_rng(s)
+    est, n, y1, ym1, kosten = mlmc_sr(t=20, y=4000, eta=4000, q=1, eps=1e-3, N0=10, rng=rng)
+    ergebnisse_n0.append(est)
+    level_n0.append(len(n) - 1)
+
+ergebnisse_n0 = np.array(ergebnisse_n0)
+level_n0 = np.array(level_n0)       
+
+print((ergebnisse_n0 == 0).sum())
+
+ergebnisse_n10000 = []
+level_n10000 = []
+
+for s in seeds:
+    rng = np.random.default_rng(s)
+    est, n, y1, ym1, kosten = mlmc_sr(t=20, y=4000, eta=4000, q=1, eps=1e-3, N0=10000, rng=rng)
+    ergebnisse_n10000.append(est)
+    level_n10000.append(len(n) - 1)
+
+ergebnisse_n10000 = np.array(ergebnisse_n10000)
+level_n10000 = np.array(level_n10000)   
+
+print(ergebnisse_n10000.mean())
+print(np.sqrt(((ergebnisse_n10000 - 0.0104)**2).mean()))
+
+# %%

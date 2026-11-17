@@ -1,10 +1,3 @@
-# %% Imports
-import sys
-from pathlib import Path
-# Repo-Root in den Suchpfad, damit algorithms/ und models/ gefunden werden
-_kandidaten = [Path.cwd(), *Path.cwd().parents, Path.home() / "Documents/Dev/bachelor-thesis"]
-ROOT = next(p for p in _kandidaten if (p / "algorithms").is_dir())
-sys.path.insert(0, str(ROOT))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,7 +7,9 @@ from algorithms.selective_refinement import (
     selective_refinement,
     selective_refinement_vectorised
     )
-from models.corroded_beam import G, sample
+
+from algorithms.monte_carlo import MC_Pilot,MC
+from models.corroded_beam import G,G_k, sample
 
 #Formulas
 def p_mean(runs):
@@ -39,7 +34,7 @@ t = 20
 
 y=0
 l_max = 10
-eta=4000
+eta=2000
 
 z=10
 real_val = np.zeros(z)
@@ -49,6 +44,20 @@ sr_val_vectorised = np.zeros(z)
 time_mc=np.zeros(z)
 time_sr=np.zeros(z)
 time_sr_vectorised=np.zeros(z)
+rng = np.random.default_rng(0)
+
+n_mc = 10**7
+block_number=100
+treffer = 0
+for j in range(block_number):
+    g = G(*sample(n_mc, rng), t)
+    treffer += (g <=y).sum()
+
+p = treffer / (n_mc*block_number)
+print(p)
+
+
+
 
 # %% Plain MC + scalar SR
 for i in range(z):
@@ -58,7 +67,7 @@ for i in range(z):
     ## Plain Monte Carlo
     n_mc = 10**7
     t0 = time.perf_counter()
-    block_number=10
+    block_number=100
     treffer = 0
     for j in range(block_number):
         g = G(*sample(n_mc, rng), t)
@@ -106,7 +115,7 @@ for i in range(z):
 
     #print(f"Time taken Vectorized SR: {t1-t0:.3f} s")
     time_sr_vectorised[i] = t1-t0
-
+'''
     #%% MLMC Selective Refinment
     gamma=1/2
     init_samples=100
@@ -118,7 +127,7 @@ for i in range(z):
 
     #prob_vals_1 = np.zeros()
     #prob_vals_1 = np.zeros()
-    ''' 
+
 
     while True:
         Nl = init_samples*gamma**-L 
@@ -139,10 +148,8 @@ for i in range(z):
             break
         L +=1
 
-    '''
 
-
-
+'''
 
 # %% Auswertung der Validierung (p_m, s, z-Wert)
 
@@ -329,7 +336,7 @@ for t in range(0,len(timeline)):
 # %%
 
 
-
+'''
 
 t0 = time.perf_counter()
 
@@ -349,7 +356,7 @@ for i in range(0,len(timeline)):
     level_counts_vectorised[i,:] = level_counts
 
 t1 = time.perf_counter()
-
+'''
 
 #%%
 from models.corroded_beam import G_k
@@ -453,15 +460,15 @@ eps = 1e-3
 optimal_N(V,c,eps)
 
 
-def mlmc_sr(t, y, eta, q, eps, N0=1000, k=1, gamma=0.5, L_max=10, rng=None):
+def mlmc_sr(t, y, eta, q, eps, N_start=1000,N_0=10, k=1, gamma=0.5, L_max=10, rng=None):
     n, y1, ym1, kosten = [], [], [], []
 
     L = 0
     while True:
-
+        n_new = N_start if L == 0 else int(N_0 * gamma**(-L))
         # Let NL = Nγ−L and compute YMC Nℓ,L using selective refinement (Algorithm 1)
-        y_one,y_zero,y_nOne,cost_sr_vectorised =level_stats(L, int(N0 * gamma**(-L)), t, y, eta, q, rng)
-        n.append(int(N0 * gamma**(-L)))
+        y_one,y_zero,y_nOne,cost_sr_vectorised =level_stats(L, n_new, t, y, eta, q, rng)
+        n.append(n_new)
         y1.append(y_one)
         ym1.append(y_nOne)
         kosten.append(cost_sr_vectorised)
@@ -502,6 +509,9 @@ def mlmc_sr(t, y, eta, q, eps, N0=1000, k=1, gamma=0.5, L_max=10, rng=None):
         if left < right:
             break
 
+        if L == L_max:
+            print("L_max erreicht: Abbruchkriterium nicht erfüllt")
+            break
         L += 1
 
     # The MLMC-SR estimator is QML {Nℓ},L=L ℓ=0 YMC
@@ -520,6 +530,7 @@ print("n pro Level:", n)
 print("y1:", y1)
 print("ym1:", ym1)'''
 
+#%% MLMC-SR mit verschiedenen N0-Werten
 
 seeds = range(20)
 ergebnisse_n0 = []
@@ -541,7 +552,7 @@ level_n10000 = []
 
 for s in seeds:
     rng = np.random.default_rng(s)
-    est, n, y1, ym1, kosten = mlmc_sr(t=20, y=4000, eta=4000, q=1, eps=1e-3, N0=10000, rng=rng)
+    est, n, y1, ym1, kosten = mlmc_sr(t=20, y=4000, eta=4000, q=1, eps=1e-3, N0=100, rng=rng)
     ergebnisse_n10000.append(est)
     level_n10000.append(len(n) - 1)
 
@@ -552,3 +563,13 @@ print(ergebnisse_n10000.mean())
 print(np.sqrt(((ergebnisse_n10000 - 0.0104)**2).mean()))
 
 # %%
+rng = np.random.default_rng(0)
+est, n, y1, ym1, kosten = mlmc_sr(t=20, y=0, eta=4000, q=1, eps=3e-6, N0=1000, rng=rng)
+print("Schätzer:", est)
+print("Level L:", len(n) - 1)
+print("n pro Level:", n)
+print("y1:", y1)
+print("ym1:", ym1)
+print("Kosten pro Level:", kosten)
+
+

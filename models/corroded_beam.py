@@ -1,4 +1,5 @@
 import numpy as np
+from sympy import ln
 
 # Parameter
 L = 5
@@ -22,11 +23,12 @@ def sample(n, rng):
     b0 = lognormal(0.2, 0.05, rng, n)
     h0 = lognormal(0.04, 0.1, rng, n)
     F = rng.normal(3500.0, 0.20 * 3500.0, n)
-    return fy, b0, h0, F
+    Uniform = rng.uniform(-1,1,n)
+    return fy, b0, h0, F, Uniform
 
 # QOI
 
-def G(fy, b0, h0, F, t):
+def G(fy, b0, h0, F,u, t):
     b_t = b0 - 2 * k * t
     h_t = h0 - 2 * k * t
     MU = b_t * h_t**2 * fy / 4
@@ -34,5 +36,5 @@ def G(fy, b0, h0, F, t):
     return MU - M
 
 
-def G_k(fy, b0, h0, F, t,j,u,eta):
-    return G(fy, b0, h0, F, t) + 2**(-j)*eta * u
+def G_k(fy, b0, h0, F, u ,t,j,eta):
+    return G(fy, b0, h0, F,u, t) + 2**(-j)*eta * u

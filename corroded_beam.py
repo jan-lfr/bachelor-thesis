@@ -1,1 +1,1 @@
-from experiments.corroded_beam import *
+from experiments.Corroded_beam.corroded_beam import *

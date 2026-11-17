@@ -57,7 +57,6 @@ def selective_refinement_vectorised_MLMC(l_max,w,t,y,eta,rng):
 
     check = abs(g-y) < 2**(-j)*eta
 
-    
 
     while check.sum() > 0 and j<l_max:
 
